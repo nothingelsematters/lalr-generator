@@ -1,18 +1,18 @@
-package lalr.lexer
+package lalr
 
 import lalr.*
 
 
-class LexerException(override val message: String): Exception(message)
-
-data class Token(val name: String, val value: String)
+class LexerGenerationException(val errorMessage: String): ParserGenerationException(errorMessage)
 
 fun generateTokens(tokens: List<Token>): String {
+    val unavailable = "\"%s\" token name is not available, what for would you need that?"
     for ((k, v) in tokens.groupBy(Token::name)) {
         when {
-            !k.all { it in 'a'..'z' || it in 'A'..'Z' } -> throw LexerException("token name should consist of letters, got \"$k\"")
-            k == "EOF" -> throw LexerException("\"EOF\" token name is not available, what for would you need that?")
-            v.size > 1 -> throw LexerException("tokens name collision: ${v.joinToString()}")
+            !k.all { it in 'a'..'z' || it in 'A'..'Z' } -> throw LexerGenerationException("token name should consist of letters, got \"$k\"")
+            k == "EOF" -> throw LexerGenerationException(unavailable.format("EOF"))
+            k == "EPSILON" -> throw LexerGenerationException(unavailable.format("EPSILON"))
+            v.size > 1 -> throw LexerGenerationException("tokens name collision: ${v.joinToString()}")
         }
     }
 
@@ -39,7 +39,7 @@ fun generateLexer(tokens: List<Token>): String {
 
         for (i in str.indices) {
             if (states[currentState].terminal != null) {
-                throw LexerException("tokens collision: \"$str\" goes through terminal \"${str.substring(0 until i)}\"")
+                throw LexerGenerationException("tokens collision: \"$str\" goes through terminal \"${str.substring(0 until i)}\"")
             }
 
             if (!states[currentState].transitions.containsKey(str[i])) {
