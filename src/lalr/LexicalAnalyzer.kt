@@ -1,32 +1,20 @@
 package lalr
 
-import lalr.*
+import java.io.File
 
 
 class LexerGenerationException(val errorMessage: String): ParserGenerationException(errorMessage)
 
-fun generateTokens(tokens: List<Token>): String {
-    val unavailable = "\"%s\" token name is not available, what for would you need that?"
-    for ((k, v) in tokens.groupBy(Token::name)) {
-        when {
-            !k.all { it in 'a'..'z' || it in 'A'..'Z' } -> throw LexerGenerationException("token name should consist of letters, got \"$k\"")
-            k == "EOF" -> throw LexerGenerationException(unavailable.format("EOF"))
-            k == "EPSILON" -> throw LexerGenerationException(unavailable.format("EPSILON"))
-            v.size > 1 -> throw LexerGenerationException("tokens name collision: ${v.joinToString()}")
-        }
-    }
-
-    return tokensTemplate
-        .format (
-            tokens.map { "/* ${it.value} */ ${it.name}" }.joinToString(separator = ",\n|${indent()}")
-        )
-        .trimMargin("|")
-}
-
-data class State(var terminal: Token? = null, val transitions: MutableMap<Char, Int> = hashMapOf<Char, Int>()) {
+data class State(var terminal: String? = null, val transitions: MutableMap<Char, Int> = hashMapOf<Char, Int>()) {
     override fun toString(): String =
-        "State(${terminal?.let { "Token.${it.name}" }}, " +
-        "hashMapOf<Char, Int>(${transitions.toList().map { (from, to) -> "\'$from\' to $to" }.joinToString() }))"
+        StringBuilder()
+            .append("State(")
+            .append(terminal?.let { "\"$it\"" })
+            .append(", ")
+            .append("hashMapOf<Char, Int>(")
+            .append(transitions.toList().map { (from, to) -> "\'$from\' to $to" }.joinToString())
+            .append("))")
+            .toString()
 }
 
 fun generateLexer(tokens: List<Token>): String {
@@ -48,21 +36,11 @@ fun generateLexer(tokens: List<Token>): String {
             }
             currentState = states[currentState].transitions[str[i]]!!
         }
-        states[currentState].terminal = tk
+        states[currentState].terminal = tk.name
     }
 
     return analyzerTemplate.format(states.joinToString(separator = ",\n${indent(2)}"))
 }
-
-
-
-val tokensTemplate =
-    """
-    |public enum class Token {
-    |${indent()}%s,
-    |${indent()}/* end of input */ EOF
-    |}
-    """
 
 val analyzerTemplate =
     """
@@ -72,7 +50,7 @@ val analyzerTemplate =
 
     public class LexicalException(str: String, pos: Int): ParseException(str, pos)
 
-    public data class State(val terminal: Token?, val transitions: Map<Char, Int>)
+    public data class State(val terminal: String?, val transitions: Map<Char, Int>)
 
     public class LexicalAnalyzer(val ins: InputStream) {
         private var curChar = 0
@@ -84,7 +62,7 @@ val analyzerTemplate =
         var curPos = 0
             private set
 
-        lateinit var curToken: Token
+        lateinit var curToken: String
             private set
 
         init {
@@ -103,7 +81,7 @@ val analyzerTemplate =
         public fun nextToken() {
             var currentState = 0
             if (curChar == -1) {
-                curToken = Token.EOF
+                curToken = "!EOF"
                 return
             }
 

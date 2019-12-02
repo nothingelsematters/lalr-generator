@@ -20,13 +20,13 @@ data class Rule(val name: String, val production: List<String>, val pointer: Int
 
 data class ExtendedRule(val name: String, val production: List<String>, val indices: List<Int>) {
     override fun toString() =
-        "${indices.first()} name ${indices.last()} -> " +
+        "${indices.first()} $name ${indices.last()} -> " +
         indices.subList(1, indices.size).zip(production) { i, p -> "$i $p" }.joinToString(separator = " ")
 }
 
 
-fun assertValidRules(rules: List<Rule>, tokens: List<Token>) {
-    val names = HashSet(rules.map(Rule::name) + tokens.map(Token::name))
+fun assertValidRules(rules: List<Rule>, tokens: Set<String>) {
+    val names = HashSet(rules.map(Rule::name) + tokens)
     rules.forEach { r ->
         r.production.forEach { prod ->
             if (!names.contains(prod)) {
@@ -36,7 +36,7 @@ fun assertValidRules(rules: List<Rule>, tokens: List<Token>) {
     }
 }
 
-fun addRule(rules: Map<String, List<Rule>>, tokens: Map<String, List<Token>>, rule: Rule, itemSet: MutableSet<Rule>) {
+fun addRule(rules: Map<String, List<Rule>>, tokens: Set<String>, rule: Rule, itemSet: MutableSet<Rule>) {
     if (itemSet.contains(rule)) return
 
     itemSet.add(rule)
@@ -46,7 +46,7 @@ fun addRule(rules: Map<String, List<Rule>>, tokens: Map<String, List<Token>>, ru
 
 fun createItemSets (
     rules: Map<String, List<Rule>>,
-    tokens: Map<String, List<Token>>,
+    tokens: Set<String>,
     start: Rule
 ): Pair<List<Set<Rule>>, List<Map<String, Int>>> {
 
@@ -69,11 +69,11 @@ fun createItemSets (
             translationTable.add(HashMap<String, Int>())
 
             itemSet
-            .filter { it.production.size > it.pointer }
-            .groupBy { it.production[it.pointer] }
-            .forEach { (_, newSetStart) ->
-                q.add(newSetStart.map { it.copy(pointer = it.pointer + 1) } to itemSetList.lastIndex)
-            }
+                .filter { it.production.size > it.pointer }
+                .groupBy { it.production[it.pointer] }
+                .forEach { (_, newSetStart) ->
+                    q.add(newSetStart.map { it.copy(pointer = it.pointer + 1) } to itemSetList.lastIndex)
+                }
         }
 
         val element = currentStart.first()
@@ -82,33 +82,33 @@ fun createItemSets (
         }
     }
 
-    /* DEBUG */
+    // verbose
     itemSetList.forEachIndexed { index, it ->
-        println(index)
-        it.forEach { that -> println("    $that") }
+        logln(index)
+        it.forEach { that -> logln("    $that") }
     }
 
-    val maxSpace = minOf(4, rules.values.flatten().map { it.name.length }.max()!! + 1)
-    println("-".repeat(30))
-    print("    ")
+    val maxSpace = maxOf(2, rules.values.flatten().map { it.name.length }.max()!! + 1)
+    logln("-".repeat(30))
+    log("    ")
     for (i in translationTable.indices) {
         val str = i.toString()
-        print("${" ".repeat(maxSpace - str.length)}$str")
+        log("${" ".repeat(maxSpace - str.length)}$str")
     }
-    println()
+    logln()
 
     translationTable.forEachIndexed { i, m ->
         val iStr = i.toString()
-        print("${" ".repeat(4 - iStr.length)}$iStr")
+        log("${" ".repeat(4 - iStr.length)}$iStr")
         val row = MutableList<String?>(itemSetList.size) { null }
 
         m.forEach { (from, to) -> row[to] = from }
         row.forEach { str ->
-            print(str?.let {"${" ".repeat(maxSpace - it.length)}$it" } ?: " ".repeat(maxSpace))
+            log(str?.let {"${" ".repeat(maxSpace - it.length)}$it" } ?: " ".repeat(maxSpace))
         }
-        println()
+        logln()
     }
-    println()
+    logln()
 
     return itemSetList to translationTable
 }
@@ -131,30 +131,88 @@ fun extendGrammar(itemSets: List<Set<Rule>>, translationTable: List<Map<String, 
             }
         }
         .flatten()
-        /* DEBUG */
-        .also { it.forEach(::println) }
+        .also { it.forEach { logln(it)} } // verbose
 
-fun createFirst(ruleList: List<Rule>): List<Set<String>> {
-    return emptyList<Set<String>>()
+fun addFirst(ruleList: List<ExtendedRule>, indicesMap: Map<String, List<Int>>, name: String, first: List<MutableSet<String>>) { // TODO fix loops
+    if (first[indicesMap[name]!!.first()].isNotEmpty()) return
+
+    val rule = ruleList[indicesMap[name]!!.first()]
+    for (part in rule.production) {
+        val partSet = first[indicesMap[part]!!.first()]
+        if (partSet.isEmpty()) {
+            addFirst(ruleList, indicesMap, part, first)
+        }
+
+        indicesMap[name]!!.forEach { first[it].addAll(partSet) }
+        if (!partSet.contains(EPSILON)) break
+    }
 }
 
-fun generateSyntaxAnalyzer(ruleList: List<Rule>, tokenList: List<Token>, start: String): String {
+fun createFirst(ruleList: List<ExtendedRule>, terminals: Set<String>): List<Set<String>> {
+    val first = MutableList<MutableSet<String>>(ruleList.size) { HashSet<String>() }
+    val indicesMap = ruleList.indices.groupBy { ruleList[it].name }
+
+    val (terminalLeading, nonTerminalLeading) = ruleList.partition { terminals.contains(it.production.first()) }
+    terminalLeading.forEach { rule -> indicesMap[rule.name]!!.forEach { first[it].add(rule.production.first()) } }
+    nonTerminalLeading.forEach { addFirst(ruleList, indicesMap, it.name, first) }
+
+    // verbose
+    indicesMap.entries.map { (s, i) -> s to i.first() }.forEach { (s, i) ->
+        logln("FIRST($s) = {${first[i].joinToString()}}")
+    }
+    return first
+}
+
+fun createFollow(ruleList: List<ExtendedRule>, terminals: Set<String>): Map<Pair<String, Int>, Set<String>> {
+    val follow = HashMap<Pair<String, Int>, MutableSet<String>>()
+    follow.getOrPut(START to 0) { HashSet<String>() }.add(EOF)
+    /* val delayedSubstitution = MutableList<MutableSet<String>>(ruleList.size) { HashSet<String>() } */
+
+    ruleList.forEach { rule ->
+        rule.production.subList(0, rule.production.lastIndex).forEachIndexed traversing@ { index, prod ->
+            if (terminals.contains(prod)) return@traversing
+
+            if (terminals.contains(rule.production[index + 1])) {
+                follow.getOrPut(prod to rule.indices[index]) { HashSet<String>() }.add(rule.production[index + 1])
+            }
+
+
+        }
+        rule.production.last().let {
+            if (!terminals.contains(it)) {
+                /* delayedSubstitution */
+                TODO()
+            }
+        }
+    }
+
+    return follow
+}
+
+fun generateSyntaxAnalyzer(ruleList: List<Rule>, tokens: Set<String>, start: String): String {
     println(">> Generating Syntax Analyzer")
-    assertValidRules(ruleList, tokenList)
+    ruleList.forEach { logln(it) } // verbose
+
+    assertValidRules(ruleList, tokens)
 
     val rules = ruleList.groupBy(Rule::name)
-    val tokens = tokenList.groupBy(Token::name)
-    val startRule = Rule("!Start", listOf(start))
+    val startRule = Rule(START, listOf(start))
 
     println(">>> Creating Item Sets and Translation Table")
     val (itemSets, translationTable) = createItemSets(rules, tokens, startRule)
+
     println(">>> Creating Extended Grammar")
     val extendedGrammar = extendGrammar(itemSets, translationTable)
 
+    println(">>> Creating First")
+    val first = createFirst(extendedGrammar, tokens)
+
+    println(">>> Creating Follow")
+    val follow = createFollow(extendedGrammar, tokens)
 
     /*
         TODO
-        first
+        first: rewrite in extended style
         follow
         goto and actions
     */
@@ -180,5 +238,5 @@ fun main() {
     )
 
     val start = "N"
-    generateSyntaxAnalyzer(ruleList, tokenList, start)
+    generateSyntaxAnalyzer(ruleList, tokenList.map(Token::name).toSet(), start)
 }
