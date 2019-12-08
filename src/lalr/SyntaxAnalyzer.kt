@@ -1,6 +1,7 @@
 package lalr
 
 import java.util.Queue
+import java.util.Stack
 import java.util.LinkedList
 
 
@@ -24,11 +25,11 @@ data class ExtendedRule(val name: String, val production: List<String>, val indi
         indices.subList(1, indices.size - 1).zip(production) { i, p -> "$p $i" }.joinToString(separator = " ")
 }
 
-abstract class Action(index: Int)
+abstract class Action(open val index: Int)
 
-data class Shift(val index: Int): Action(index)
-data class Reduce(val index: Int): Action(index)
-data class Goto(val index: Int): Action(index)
+data class Shift(override val index: Int): Action(index)
+data class Reduce(override val index: Int): Action(index)
+data class Goto(override val index: Int): Action(index)
 
 
 fun assertValidRules(rules: List<Rule>, tokens: Set<String>) {
@@ -93,7 +94,6 @@ fun createItemSets (
         logln(index)
         it.forEach { that -> logln("    $that") }
     }
-
     logln("-".repeat(30))
     logMaps(translationTable)
 
@@ -331,16 +331,6 @@ fun createOutput(extendedGrammar: List<ExtendedRule>, gotos: List<Map<String, Ac
     """.trimIndent()
 }
 
-val syntaxAnalyzerTemplate = """
-fun parse%s(ins: InputStream) {
-    lex = LexicalAnalyzer(ins)
-    lex.nextToken()
-
-}
-
-%s
-"""
-
 fun generateSyntaxAnalyzer(name: String, ruleList: List<Rule>, tokens: Set<String>, start: String): String {
     println(">> Generating Syntax Analyzer")
     ruleList.forEachIndexed { index, it -> logln("$index. $it") } // verbose
@@ -370,24 +360,39 @@ fun generateSyntaxAnalyzer(name: String, ruleList: List<Rule>, tokens: Set<Strin
     }
 }
 
+val syntaxAnalyzerTemplate = """
+import java.text.ParseException
 
-/* DEBUG */
+public class SyntaxException(str: String, pos: Int): ParseException(str, pos)
 
-fun main() {
-    val ruleList = listOf(
-        Rule("N", listOf("V", "=", "E")),
-        Rule("N", listOf("E")),
-        Rule("E", listOf("V")),
-        Rule("V", listOf("x")),
-        Rule("V", listOf("*", "E"))
-    )
+fun parse%s(ins: InputStream) {
+    val lex = LexicalAnalyzer(ins)
+    lex.nextToken()
 
-    val tokenList = listOf(
-        Token("=", "="),
-        Token("*", "*"),
-        Token("x", "x")
-    )
+    val st = Stack<Int>()
+    val reductions = ArrayList<Int>()
+    st.push(0)
+    var currentTransition: Action = transitions[st.peek()][lex.curToken] ?: throw Exception("")
 
-    val start = "N"
-    generateSyntaxAnalyzer("Sample", ruleList, tokenList.map(Token::name).toSet(), start)
+    while (currentTransition.index != -1) {
+        when (currentTransition) {
+            is Shift -> {
+                st.push(currentTransition.index)
+                lex.nextToken()
+            }
+
+            is Reduce -> {
+                result.add(currentTransition.index)
+                ruleList[currentTransition.index].production.indices.forEach { st.pop() }
+                st.push(transitions[st.peek()][ruleList[currentTransition.index].name] ?.index ?: throw Exception(""))
+            }
+
+            else -> throw Exception("")
+        }
+
+        currentTransition = transitions[st.peek()][lex.curToken] ?: throw SyntaxException("Unexpected token \"${'$'}{lex.curToken}\"", lex.curPos)
+    }
 }
+
+%s
+"""

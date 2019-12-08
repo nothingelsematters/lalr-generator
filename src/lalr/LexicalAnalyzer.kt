@@ -18,6 +18,7 @@ data class State(var terminal: String? = null, val transitions: MutableMap<Char,
 }
 
 fun generateLexer(tokens: List<Token>): String {
+    println(">> Generating Syntax Analyzer")
     val states = ArrayList<State>()
     states.add(State())
 
