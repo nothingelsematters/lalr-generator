@@ -16,6 +16,6 @@ fun writeGenerator(
         it.print(generateLexer(name, tokens))
     }
     File(filePrefix + "Parser.kt").printWriter().use {
-        it.print(generateSyntaxAnalyzer(name, ruleList, tokens.asSequence().map(Token::name).toSet(), start))
+        it.print(generateSyntaxAnalyzer(name, ruleList, tokens.asSequence().filterNot(Token::skip).map(Token::name).toSet(), start))
     }
 }

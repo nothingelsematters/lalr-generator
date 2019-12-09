@@ -5,15 +5,18 @@ import java.io.File
 
 class LexerGenerationException(val errorMessage: String): ParserGenerationException(errorMessage)
 
-data class State(var terminal: String? = null, val transitions: MutableMap<Char, Int> = hashMapOf<Char, Int>()) {
+data class State(
+    var terminal: String? = null,
+    val transitions: MutableMap<Char, Int> = hashMapOf<Char, Int>(),
+    val skip: Boolean = false
+) {
     override fun toString(): String =
         StringBuilder()
             .append("State(")
             .append(terminal?.let { "\"$it\"" })
-            .append(", ")
-            .append("hashMapOf<Char, Int>(")
+            .append(", hashMapOf<Char, Int>(")
             .append(transitions.toList().map { (from, to) -> "\'$from\' to $to" }.joinToString())
-            .append("))")
+            .append("), skip = $skip)")
             .toString()
 }
 
@@ -51,7 +54,7 @@ val analyzerTemplate =
 
     public class LexicalException(str: String, pos: Int): ParseException(str, pos)
 
-    public data class State(val terminal: String?, val transitions: Map<Char, Int>)
+    public data class State(val terminal: String?, val transitions: Map<Char, Int>, val skip: Boolean = false)
 
     data class Token(val name: String, val text: String)
 
@@ -100,6 +103,7 @@ val analyzerTemplate =
                 nextChar()
             }
 
+            if (states[currentState].skip) nextToken()
             curToken = Token(states[currentState].terminal!!, text.toString())
         }
     }
