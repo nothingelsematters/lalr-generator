@@ -471,6 +471,8 @@ import java.util.Stack
 import java.text.ParseException
 
 
+public class SyntaxException(str: String, pos: Int): ParseException(str, pos)
+
 data class ExtendedRule(val name: String, val production: List<String>, val indices: List<Int>) {
     val extendedName
         get() = "${'$'}{name} = ${'$'}{production.joinToString(" ")}"
@@ -499,7 +501,7 @@ public class %1${'$'}sParser {
         st.push(0)
 
         lex.nextToken()
-        var currentTransition: Action = gotos[st.peek()][lex.curToken.name] ?: throw Exception("")
+        var currentTransition: Action = gotos[st.peek()][lex.curToken.name] ?: noTransition()
 
 
         while (currentTransition.index != -1) {
@@ -513,27 +515,30 @@ public class %1${'$'}sParser {
                 is Reduce -> {
                     %1${'$'}sParser::class.java.getDeclaredMethod(extendedGrammar[currentTransition.index].extendedName).invoke(this)
                     extendedGrammar[currentTransition.index].production.indices.forEach { st.pop() }
-                    st.push(gotos[st.peek()][extendedGrammar[currentTransition.index].name] ?.index ?: throw Exception(""))
+                    st.push(gotos[st.peek()][extendedGrammar[currentTransition.index].name]?.index ?: noTransition()
                 }
 
-                else -> throw Exception("")
+                else -> noTransition()
             }
 
-            currentTransition = gotos[st.peek()][lex.curToken.name] ?: throw Exception("")
+            currentTransition = gotos[st.peek()][lex.curToken.name] ?: noTransition()
         }
 
         if (output.size != 1) {
-            throw Exception("")
+            throw SyntaxException("There are few more tokens left, starting rule didn't reduce", lex.curPos)
         }
         return safePop<%4${'$'}s>()
     }
 
+    private fun noTransition(): Nothing {
+        throw SyntaxException("No rule for \"${'$'}{ lex.curToken.name }\" at", lex.curPos)
+    }
+
     inline private fun <reified T> safePop(): T {
         if (output.empty()) {
-            /* throw ParseException("Expected more tokens", lex.curPos) */
-            throw Exception("")
+            throw SyntaxException("Expected more tokens", lex.curPos)
         }
-        if (output.peek() !is T) throw Exception("")
+        if (output.peek() !is T) throw SyntaxException("Got wrong type for \"${'$'}{ output.peek() }\", lex.curPos")
         return output.pop() as T
     }
 
