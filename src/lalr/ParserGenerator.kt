@@ -1,8 +1,21 @@
 package lalr
 
-fun generateParser(name: String, tokens: List<Token>, ruleList: List<Rule>, start: String): String {
-    println("> Generating Parser")
-    generateLexer(tokens)
-    generateSyntaxAnalyzer(name, ruleList, tokens.asSequence().map(Token::name).toSet(), start)
-    return TODO()
+import java.io.File
+
+fun processFile(fileName: String, outputFile: String) = TODO()
+
+fun writeGenerator(
+    filePrefix: String,
+    name: String,
+    tokens: List<Token>,
+    ruleList: List<StarterRule>,
+    start: String,
+    parserHeader: String
+) {
+    File(filePrefix + "Lexer.kt").printWriter().use {
+        it.print(generateLexer(name, tokens))
+    }
+    File(filePrefix + "Parser.kt").printWriter().use {
+        it.print(generateSyntaxAnalyzer(name, ruleList, tokens.asSequence().map(Token::name).toSet(), start))
+    }
 }

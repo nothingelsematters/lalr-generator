@@ -7,9 +7,13 @@ import java.util.LinkedList
 
 open class SyntaxAnalyzerGenerationException(val errorMessage: String): ParserGenerationException(errorMessage)
 
+data class StarterRule(val rule: Rule, val code: String, val returnType: String)
+
 data class Rule(val name: String, val production: List<String>, val pointer: Int = 0) {
     val pointed
         get() = production[pointer]
+    val extendedName
+        get() = "${name} = ${production.joinToString(" ")}"
 
     override fun toString() =
         name + " -> " +
@@ -32,7 +36,7 @@ data class Reduce(override val index: Int): Action(index)
 data class Goto(override val index: Int): Action(index)
 
 
-fun assertValidRules(rules: List<Rule>, tokens: Set<String>) {
+fun assertValidRules(rules: List<Rule>, tokens: Set<String>, start: String) {
     val names = HashSet(rules.map(Rule::name) + tokens)
     rules.forEach { r ->
         r.production.forEach { prod ->
@@ -40,6 +44,20 @@ fun assertValidRules(rules: List<Rule>, tokens: Set<String>) {
                 throw SyntaxAnalyzerGenerationException("rule \"$prod\" needed by \"${r.name} cannot be found")
             }
         }
+    }
+    if (rules.find { it.name == start } == null)
+        throw SyntaxAnalyzerGenerationException("there is no start (\"$start\") rule")
+}
+
+fun assertValidCodes(rules: List<StarterRule>) {
+    val types = HashMap<String, String>()
+    rules.forEach {
+        val retType = it.returnType
+        if (types.getOrPut(it.rule.name) { retType } != retType)
+            throw SyntaxAnalyzerGenerationException("different return types for rule \"${it.rule.name}\"")
+    }
+    rules.forEach {
+        if (it.code.isEmpty()) throw SyntaxAnalyzerGenerationException("empty code section for \"${it.rule.name}\"")
     }
 }
 
@@ -324,12 +342,11 @@ fun createGotos(
     val transitions = MutableList<MutableMap<String, Action>>(itemSets.size) { HashMap<String, Action>() }
 
     val finishIndex = itemSets.indexOfFirst { it.find { it.name == START && it.pointer == it.production.size } != null }
-    transitions[finishIndex][EOF] = Goto(-1)
 
     transitions.forEachIndexed { index, it ->
         it.putAll(
             translationTable[index]
-                .map { (k, v) -> k to if (terminals.contains(k)) Goto(v) else Shift(v) }
+                .map { (k, v) -> k to if (terminals.contains(k)) Shift(v) else Goto(v) }
         )
     }
 
@@ -349,6 +366,7 @@ fun createGotos(
                 .toSet()
                 .forEach { transitions[newIndex][it] = Reduce(ruleIndex) }
         }
+    transitions[finishIndex][EOF] = Goto(-1)
 
     logMaps(transitions) // verbose
     return transitions
@@ -363,25 +381,64 @@ fun createOutput(extendedGrammar: List<ExtendedRule>, gotos: List<Map<String, Ac
 
             "ExtendedRule(\"${it.name}\", listOf($productionString), listOf($indicesString))"
         }
-        .joinToString(",\n${indent(2)}", "listOf<ExtendedRule>(\n${indent(2)}", "\n${indent()})")
+        .joinToString(",\n|${indent(2)}", "listOf<ExtendedRule>(\n|${indent(2)}", "\n|${indent()})")
 
     val gotosString = gotos.map {
         val mapString = it.asSequence().map { (k, v) -> "\"$k\" to $v" }.joinToString()
         "mapOf<String, Action>($mapString)"
-    }.joinToString(",\n${indent(2)}", "listOf<Map<String, Action>>(\n${indent(2)}", "\n${indent()})")
+    }.joinToString(",\n|${indent(2)}", "listOf<Map<String, Action>>(\n|${indent(2)}", "\n|${indent()})")
 
 
     return """
-    val extendedGrammar = $grammarString
-    val gotos = $gotosString
-    """.trimIndent()
+    |${indent()}val extendedGrammar = $grammarString
+    |${indent()}val gotos = $gotosString
+    """.trimMargin("|")
 }
 
-fun generateSyntaxAnalyzer(name: String, ruleList: List<Rule>, tokens: Set<String>, start: String): String {
+fun createRulesArguments(rule: Rule, types: Map<String, String>) =
+    rule
+        .production
+        .asReversed()
+        .asSequence()
+        .mapIndexed { index, name -> "val arg${rule.production.lastIndex - index} = safePop<${types[name] ?: "Token"}>()" }
+        .joinToString("\n|${indent(2)}")
+
+fun createRulesCode(rules: List<StarterRule>): String {
+    val types = rules.asSequence().map { it.rule.name to it.returnType }.toMap()
+
+    return rules
+        .asSequence()
+        .map {
+            val newCode = it.code.replace(Regex("\\${'$'}\\d+")) { "arg${it.value.substringAfterLast('$')}" }
+            val lines = newCode.lines()
+            val first = lines.subList(0, lines.size - 1).joinToString("\n${indent(2)}")
+            val second = lines.last()
+
+            """
+            |${indent()}private fun `${it.rule.extendedName}`() {
+            |${indent(2)}${createRulesArguments(it.rule, types)}
+            |${indent(2)}$first
+            |${indent(2)}output.push($second)
+            |${indent()}}
+            """.trimMargin("|")
+        }
+        .joinToString("\n\n")
+}
+
+fun generateSyntaxAnalyzer(
+    name: String,
+    starterRules: List<StarterRule>,
+    tokens: Set<String>,
+    start: String,
+    parserHeader: String
+): String {
+
+    val ruleList = starterRules.map { it.rule }
     println(">> Generating Syntax Analyzer")
     ruleList.forEachIndexed { index, it -> logln("$index. $it") } // verbose
 
-    assertValidRules(ruleList, tokens)
+    assertValidRules(ruleList, tokens, start)
+    assertValidCodes(starterRules)
     val rules = ruleList.groupBy(Rule::name)
     val startRule = Rule(START, listOf(start))
 
@@ -400,21 +457,24 @@ fun generateSyntaxAnalyzer(name: String, ruleList: List<Rule>, tokens: Set<Strin
     println(">>> Creating Actions and Gotos tables")
     val gotos = createGotos(extendedGrammar, tokens, itemSets, translationTable, follow)
 
-    return syntaxAnalyzerTemplate.format(name, createOutput(extendedGrammar, gotos))
-    .also { // TEMP
-        logln("=".repeat(30))
-        logln(it)
-    }
+
+    val returnType = starterRules.find { it.rule.name == start }!!.returnType
+    val rulesCode = createRulesCode(starterRules + StarterRule(startRule, "${'$'}0", returnType))
+
+    return syntaxAnalyzerTemplate.format(name, createOutput(extendedGrammar, gotos), rulesCode, returnType, parserHeader)
 }
 
 val syntaxAnalyzerTemplate = """
+%5${'$'}s
 import java.io.InputStream
 import java.util.Stack
 import java.text.ParseException
 
-public class SyntaxException(str: String, pos: Int): ParseException(str, pos)
 
 data class ExtendedRule(val name: String, val production: List<String>, val indices: List<Int>) {
+    val extendedName
+        get() = "${'$'}{name} = ${'$'}{production.joinToString(" ")}"
+
     override fun toString() =
         "${'$'}{indices.first()} ${'$'}name ${'$'}{indices.last()} -> ${'$'}{indices.first()} " +
         indices.subList(1, indices.size - 1).zip(production) { i, p -> "${'$'}p ${'$'}i" }.joinToString(separator = " ")
@@ -426,35 +486,57 @@ data class Shift(override val index: Int): Action(index)
 data class Reduce(override val index: Int): Action(index)
 data class Goto(override val index: Int): Action(index)
 
-fun parse%s(ins: InputStream) {
-    val lex = LexicalAnalyzer(ins)
-    lex.nextToken()
+public class %1${'$'}sParser {
+    private lateinit var output: Stack<Any>
+    private lateinit var lex: %1${'$'}sLexer
 
-    val st = Stack<Int>()
-    val reductions = ArrayList<Int>()
-    st.push(0)
-    var currentTransition: Action = gotos[st.peek()][lex.curToken] ?: throw Exception("")
+%2${'$'}s
 
-    while (currentTransition.index != -1) {
-        when (currentTransition) {
-            is Shift -> {
-                st.push(currentTransition.index)
-                lex.nextToken()
+    public fun parse(ins: InputStream): %4${'$'}s {
+        lex = %1${'$'}sLexer(ins)
+        val st = Stack<Int>()
+        output = Stack<Any>()
+        st.push(0)
+
+        lex.nextToken()
+        var currentTransition: Action = gotos[st.peek()][lex.curToken.name] ?: throw Exception("")
+
+
+        while (currentTransition.index != -1) {
+            when (currentTransition) {
+                is Shift -> {
+                    st.push(currentTransition.index)
+                    output.push(lex.curToken)
+                    lex.nextToken()
+                }
+
+                is Reduce -> {
+                    %1${'$'}sParser::class.java.getDeclaredMethod(extendedGrammar[currentTransition.index].extendedName).invoke(this)
+                    extendedGrammar[currentTransition.index].production.indices.forEach { st.pop() }
+                    st.push(gotos[st.peek()][extendedGrammar[currentTransition.index].name] ?.index ?: throw Exception(""))
+                }
+
+                else -> throw Exception("")
             }
 
-            is Reduce -> {
-                reductions.add(currentTransition.index)
-                extendedGrammar[currentTransition.index].production.indices.forEach { st.pop() }
-                st.push(gotos[st.peek()][extendedGrammar[currentTransition.index].name] ?.index ?: throw Exception(""))
-            }
-
-            else -> throw Exception("")
+            currentTransition = gotos[st.peek()][lex.curToken.name] ?: throw Exception("")
         }
 
-        currentTransition = gotos[st.peek()][lex.curToken] ?:
-            throw SyntaxException("Unexpected token \"${'$'}{lex.curToken}\"", lex.curPos)
+        if (output.size != 1) {
+            throw Exception("")
+        }
+        return safePop<%4${'$'}s>()
     }
-}
 
-%s
+    inline private fun <reified T> safePop(): T {
+        if (output.empty()) {
+            /* throw ParseException("Expected more tokens", lex.curPos) */
+            throw Exception("")
+        }
+        if (output.peek() !is T) throw Exception("")
+        return output.pop() as T
+    }
+
+%3${'$'}s
+}
 """

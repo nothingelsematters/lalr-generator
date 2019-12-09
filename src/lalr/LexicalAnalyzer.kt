@@ -17,8 +17,8 @@ data class State(var terminal: String? = null, val transitions: MutableMap<Char,
             .toString()
 }
 
-fun generateLexer(tokens: List<Token>): String {
-    println(">> Generating Syntax Analyzer")
+fun generateLexer(name: String, tokens: List<Token>): String {
+    println(">> Generating Lexical Analyzer")
     val states = ArrayList<State>()
     states.add(State())
 
@@ -40,7 +40,7 @@ fun generateLexer(tokens: List<Token>): String {
         states[currentState].terminal = tk.name
     }
 
-    return analyzerTemplate.format(states.joinToString(separator = ",\n${indent(2)}"))
+    return analyzerTemplate.format(name, states.joinToString(separator = ",\n${indent(2)}"))
 }
 
 val analyzerTemplate =
@@ -53,7 +53,9 @@ val analyzerTemplate =
 
     public data class State(val terminal: String?, val transitions: Map<Char, Int>)
 
-    public class LexicalAnalyzer(val ins: InputStream) {
+    data class Token(val name: String, val text: String)
+
+    public class %sLexer(val ins: InputStream) {
         private var curChar = 0
 
         private val states = listOf(
@@ -63,7 +65,7 @@ val analyzerTemplate =
         var curPos = 0
             private set
 
-        lateinit var curToken: String
+        lateinit var curToken: Token
             private set
 
         init {
@@ -82,20 +84,23 @@ val analyzerTemplate =
         public fun nextToken() {
             var currentState = 0
             if (curChar == -1) {
-                curToken = "!EOF"
+                curToken = Token("!EOF", "${'$'}")
                 return
             }
+            val text = StringBuilder()
 
             while (states[currentState].terminal == null) {
                 if (curChar == -1) {
                     throw LexicalException("Unexpected end of input", curPos)
                 }
 
-                currentState = states[currentState].transitions[curChar.toChar()] ?: throw LexicalException("Unexpected symbol", curPos)
+                text.append(curChar.toChar())
+                currentState = states[currentState].transitions[curChar.toChar()]
+                    ?: throw LexicalException("Unexpected symbol \"${'$'}{curChar.toChar()}\"", curPos)
                 nextChar()
             }
 
-            curToken = states[currentState].terminal!!
+            curToken = Token(states[currentState].terminal!!, text.toString())
         }
     }
     """.trimIndent()
