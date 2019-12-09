@@ -174,24 +174,52 @@ fun findExtendedRule(ruleList: List<ExtendedRule>, rule: ExtendedRule, left: Int
         }
     }
 
+fun cycleDfs(graph: Map<Int, List<Int>>, current: Int, was: Set<Int> = HashSet<Int>()): Pair<Int, List<Int>>? {
+    if (was.contains(current)) {
+        return current to listOf<Int>(current)
+    }
+
+    graph[current]?.forEach {
+        val result = cycleDfs(graph, it, was + current)
+        if (result != null) {
+            return result.first to
+                if (was.contains(result.first) || result.first == current) {
+                    result.second + current
+                } else {
+                    result.second
+                }
+        }
+    }
+    return null
+}
+
+fun findCycle(graph: Map<Int, List<Int>>): List<Int>? {
+    graph.keys.forEach {
+        val result = cycleDfs(graph, it)?.second
+        if (result != null) {
+            return result
+        }
+    }
+    return null
+}
+
 fun createFollow(
     ruleList: List<ExtendedRule>,
     terminals: Set<String>,
     first: List<Set<String>>
-): List<Set<String>> /* Map<Pair<String, Int>, Set<String>> */ { /* TODO DEBUG */
+): List<Set<String>> { /* DEBUG */
 
-    val follow = HashMap<Pair<String, Int>, MutableSet<String>>()
-    follow.getOrPut(START to 0) { HashSet<String>() }.add(EOF)
+    val followMap = HashMap<Pair<String, Int>, MutableSet<String>>()
+    followMap.getOrPut(START to 0) { HashSet<String>() }.add(EOF)
     val delayedSubstitution = HashMap<Int, MutableList<Int>>()
 
     ruleList.forEachIndexed { ruleIndex, rule ->
-        /* println("$ruleIndex. $rule") */
         rule.production.subList(0, rule.production.lastIndex).forEachIndexed traversing@ { index, prod ->
             if (terminals.contains(prod)) return@traversing
 
             var subIndex = index + 1
 
-            follow.getOrPut(prod to rule.indices[index]) { HashSet<String>() }.addAll(
+            followMap.getOrPut(prod to rule.indices[index]) { HashSet<String>() }.addAll(
                 if (terminals.contains(rule.production[subIndex])) {
                     setOf(rule.production[subIndex])
                 } else {
@@ -221,25 +249,37 @@ fun createFollow(
         }
     }
 
-    /* delayedSubstitution.forEach { (from, to) ->
-        println("$from) _FOLLOW(${ruleList[from].indices.first()} ${ruleList[from].name}) -> ${to.joinToString()}")
-    } */
+    val cycles = mutableListOf<List<Int>>()
+    var probableCycle = findCycle(delayedSubstitution)
+    while (probableCycle != null) {
+        cycles.add(probableCycle)
 
-    while (delayedSubstitution.isNotEmpty()) { /* TODO fix cycles?? */
+        for (i in probableCycle.size - 1 downTo 1) {
+            val parent = probableCycle[i]
+
+            if (delayedSubstitution[parent]!!.size == 1) {
+                delayedSubstitution.remove(parent)
+            } else {
+                delayedSubstitution[parent] = (delayedSubstitution[parent]!! - probableCycle[i - 1]).toMutableList()
+            }
+        }
+        probableCycle = findCycle(delayedSubstitution)
+    }
+
+    while (delayedSubstitution.isNotEmpty()) {
         val valuesSet = delayedSubstitution.values.flatten().toSet()
         val doneList = ArrayList<Int>()
-        /* println("vs: $valuesSet") */
 
-        val was = delayedSubstitution.size /* DEBUG */
+        val was = delayedSubstitution.size
 
         delayedSubstitution.forEach { from, to ->
             if (!valuesSet.contains(from)) {
                 to.forEach {
-                    follow.getOrPut(ruleList[it].name to ruleList[it].indices.first()) {
+                    followMap.getOrPut(ruleList[it].name to ruleList[it].indices.first()) {
                         HashSet<String>()
                     }
                     .addAll(
-                        follow.getOrDefault(
+                        followMap.getOrDefault(
                             ruleList[from].name to ruleList[from].indices.first(),
                             HashSet<String>()
                         )
@@ -250,21 +290,27 @@ fun createFollow(
         }
 
         doneList.forEach { delayedSubstitution.remove(it) }
-        /* println("=".repeat(30)) */
-        /* delayedSubstitution.forEach { (from, to) ->
-            println("_FOLLOW(${ruleList[from].indices.first()} ${ruleList[from].name}) -> ${to.joinToString()}")
-        } */
 
         if (was == delayedSubstitution.size) { /* DEBUG */
             break
         }
     }
+    val follow = MutableList<MutableSet<String>>(ruleList.size) {
+        val rule = ruleList[it]
+        followMap[rule.name to rule.indices.first()] ?: HashSet<String>()
+    }
+
+    cycles.indices.forEach {
+        cycles.forEach {
+            val newFollow = it.asSequence().flatMap { follow[it].asSequence() }.toSet().toMutableSet()
+            it.forEach { follow[it] = newFollow }
+        }
+    }
 
     // verbose
-    follow.forEach { (s, ss) -> logln("FOLLOW(${s.second} ${s.first}) = { ${ss.joinToString()} }")}
+    followMap.forEach { (s, ss) -> logln("FOLLOW(${s.second} ${s.first}) = { ${ss.joinToString()} }")}
 
-    /* return follow */
-    return List<Set<String>>(ruleList.size) { HashSet<String>() }
+    return follow
 }
 
 fun createGotos(
@@ -315,14 +361,14 @@ fun createOutput(extendedGrammar: List<ExtendedRule>, gotos: List<Map<String, Ac
             val productionString = it.production.map { "\"$it\"" }.joinToString()
             val indicesString = it.indices.joinToString()
 
-            "ExtendedRule(${it.name}, listOf($productionString), listOf($indicesString))"
+            "ExtendedRule(\"${it.name}\", listOf($productionString), listOf($indicesString))"
         }
-        .joinToString("\n${indent(2)}", "listOf<ExtendedRule>(\n${indent(2)}", "\n${indent()})")
+        .joinToString(",\n${indent(2)}", "listOf<ExtendedRule>(\n${indent(2)}", "\n${indent()})")
 
     val gotosString = gotos.map {
         val mapString = it.asSequence().map { (k, v) -> "\"$k\" to $v" }.joinToString()
         "mapOf<String, Action>($mapString)"
-    }.joinToString("\n${indent(2)}", "listOf<Map<String, Action>>(\n${indent(2)}", "\n${indent()})")
+    }.joinToString(",\n${indent(2)}", "listOf<Map<String, Action>>(\n${indent(2)}", "\n${indent()})")
 
 
     return """
@@ -354,16 +400,31 @@ fun generateSyntaxAnalyzer(name: String, ruleList: List<Rule>, tokens: Set<Strin
     println(">>> Creating Actions and Gotos tables")
     val gotos = createGotos(extendedGrammar, tokens, itemSets, translationTable, follow)
 
-    return syntaxAnalyzerTemplate.format(name, createOutput(extendedGrammar, gotos)).also {
-        logln("=".repeat(30)) /* TEMP */
+    return syntaxAnalyzerTemplate.format(name, createOutput(extendedGrammar, gotos))
+    .also { // TEMP
+        logln("=".repeat(30))
         logln(it)
     }
 }
 
 val syntaxAnalyzerTemplate = """
+import java.io.InputStream
+import java.util.Stack
 import java.text.ParseException
 
 public class SyntaxException(str: String, pos: Int): ParseException(str, pos)
+
+data class ExtendedRule(val name: String, val production: List<String>, val indices: List<Int>) {
+    override fun toString() =
+        "${'$'}{indices.first()} ${'$'}name ${'$'}{indices.last()} -> ${'$'}{indices.first()} " +
+        indices.subList(1, indices.size - 1).zip(production) { i, p -> "${'$'}p ${'$'}i" }.joinToString(separator = " ")
+}
+
+abstract class Action(open val index: Int)
+
+data class Shift(override val index: Int): Action(index)
+data class Reduce(override val index: Int): Action(index)
+data class Goto(override val index: Int): Action(index)
 
 fun parse%s(ins: InputStream) {
     val lex = LexicalAnalyzer(ins)
@@ -372,7 +433,7 @@ fun parse%s(ins: InputStream) {
     val st = Stack<Int>()
     val reductions = ArrayList<Int>()
     st.push(0)
-    var currentTransition: Action = transitions[st.peek()][lex.curToken] ?: throw Exception("")
+    var currentTransition: Action = gotos[st.peek()][lex.curToken] ?: throw Exception("")
 
     while (currentTransition.index != -1) {
         when (currentTransition) {
@@ -382,15 +443,16 @@ fun parse%s(ins: InputStream) {
             }
 
             is Reduce -> {
-                result.add(currentTransition.index)
-                ruleList[currentTransition.index].production.indices.forEach { st.pop() }
-                st.push(transitions[st.peek()][ruleList[currentTransition.index].name] ?.index ?: throw Exception(""))
+                reductions.add(currentTransition.index)
+                extendedGrammar[currentTransition.index].production.indices.forEach { st.pop() }
+                st.push(gotos[st.peek()][extendedGrammar[currentTransition.index].name] ?.index ?: throw Exception(""))
             }
 
             else -> throw Exception("")
         }
 
-        currentTransition = transitions[st.peek()][lex.curToken] ?: throw SyntaxException("Unexpected token \"${'$'}{lex.curToken}\"", lex.curPos)
+        currentTransition = gotos[st.peek()][lex.curToken] ?:
+            throw SyntaxException("Unexpected token \"${'$'}{lex.curToken}\"", lex.curPos)
     }
 }
 

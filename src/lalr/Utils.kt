@@ -10,7 +10,7 @@ const val EOF = "!EOF"
 
 fun indent(level: Int = 1): String = " ".repeat(4 * level)
 
-var verbose = true
+var verbose = false
 
 fun log(info: List<Any>) {
     if (verbose) {
