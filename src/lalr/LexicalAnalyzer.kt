@@ -7,14 +7,14 @@ class LexerGenerationException(val errorMessage: String): ParserGenerationExcept
 
 data class State(
     var terminal: String? = null,
-    val transitions: MutableMap<Char, Int> = hashMapOf<Char, Int>(),
-    val skip: Boolean = false
+    val transitions: MutableMap<Char?, Int> = hashMapOf<Char?, Int>(),
+    var skip: Boolean = false
 ) {
     override fun toString(): String =
         StringBuilder()
             .append("State(")
             .append(terminal?.let { "\"$it\"" })
-            .append(", hashMapOf<Char, Int>(")
+            .append(", hashMapOf<Char?, Int>(")
             .append(transitions.toList().map { (from, to) -> "\'$from\' to $to" }.joinToString())
             .append("), skip = $skip)")
             .toString()
@@ -22,28 +22,13 @@ data class State(
 
 fun generateLexer(name: String, tokens: List<Token>): String {
     println(">> Generating Lexical Analyzer")
-    val states = ArrayList<State>()
-    states.add(State())
-
-    for (tk in tokens) {
-        var currentState = 0
-        val str = tk.value
-
-        for (i in str.indices) {
-            if (states[currentState].terminal != null) {
-                throw LexerGenerationException("tokens collision: \"$str\" goes through terminal \"${str.substring(0 until i)}\"")
-            }
-
-            if (!states[currentState].transitions.containsKey(str[i])) {
-                states.add(State())
-                states[currentState].transitions[str[i]] = states.lastIndex
-            }
-            currentState = states[currentState].transitions[str[i]]!!
+    val tokenStrings = tokens
+        .asSequence()
+        .map {
+            "InputToken(\"${ it.name }\", Regex(\"${ it.value.pattern.replace("\\", "\\\\") }\"), skip = ${ it.skip })"
         }
-        states[currentState].terminal = tk.name
-    }
-
-    return analyzerTemplate.format(name, states.joinToString(separator = ",\n${indent(2)}"))
+        .joinToString(separator = ",\n${ indent(2) }")
+    return analyzerTemplate.format(name, tokenStrings)
 }
 
 val analyzerTemplate =
@@ -54,14 +39,14 @@ val analyzerTemplate =
 
     public class LexicalException(str: String, pos: Int): ParseException(str, pos)
 
-    public data class State(val terminal: String?, val transitions: Map<Char, Int>, val skip: Boolean = false)
+    public data class InputToken(val name: String, val value: Regex, val skip: Boolean = false)
 
     data class Token(val name: String, val text: String)
 
     public class %sLexer(val ins: InputStream) {
         private var curChar = 0
 
-        private val states = listOf(
+        private val states = listOf<InputToken>(
             %s
         )
 
@@ -85,26 +70,30 @@ val analyzerTemplate =
         }
 
         public fun nextToken() {
-            var currentState = 0
+            val text = StringBuilder().append(curChar.toChar())
+
             if (curChar == -1) {
                 curToken = Token("!EOF", "${'$'}")
                 return
             }
-            val text = StringBuilder()
 
-            while (states[currentState].terminal == null) {
-                if (curChar == -1) {
-                    throw LexicalException("Unexpected end of input", curPos)
+            while (true) {
+                states.forEach {
+                    if (text.toString().matches(it.value)) {
+                        while (curChar != -1 && text.toString().matches(it.value)) {
+                            nextChar()
+                            text.append(curChar.toChar())
+                        }
+                        curToken = Token(it.name, text.toString().let { it.substring(0, it.lastIndex) })
+                        return
+                    }
                 }
 
-                text.append(curChar.toChar())
-                currentState = states[currentState].transitions[curChar.toChar()]
-                    ?: throw LexicalException("Unexpected symbol \"${'$'}{curChar.toChar()}\"", curPos)
                 nextChar()
+                if (curChar == -1) {
+                    throw LexicalException("Unexpected char sequence", curPos)
+                }
             }
-
-            if (states[currentState].skip) nextToken()
-            curToken = Token(states[currentState].terminal!!, text.toString())
         }
     }
     """.trimIndent()

@@ -41,7 +41,7 @@ fun assertValidRules(rules: List<Rule>, tokens: Set<String>, start: String) {
     rules.forEach { r ->
         r.production.forEach { prod ->
             if (!names.contains(prod)) {
-                throw SyntaxAnalyzerGenerationException("rule \"$prod\" needed by \"${r.name} cannot be found")
+                throw SyntaxAnalyzerGenerationException("rule \"$prod\" needed by \"${r.name}\" cannot be found")
             }
         }
     }
@@ -436,26 +436,27 @@ fun generateSyntaxAnalyzer(
     val ruleList = starterRules.map { it.rule }
     println(">> Generating Syntax Analyzer")
     ruleList.forEachIndexed { index, it -> logln("$index. $it") } // verbose
+    val updatedTokens = tokens + EPSILON + EOF
 
-    assertValidRules(ruleList, tokens, start)
+    assertValidRules(ruleList, updatedTokens, start)
     assertValidCodes(starterRules)
     val rules = ruleList.groupBy(Rule::name)
     val startRule = Rule(START, listOf(start))
 
     println(">>> Creating Item Sets and Translation Table")
-    val (itemSets, translationTable) = createItemSets(rules, tokens, startRule)
+    val (itemSets, translationTable) = createItemSets(rules, updatedTokens, startRule)
 
     println(">>> Extending Grammar")
     val extendedGrammar = extendGrammar(itemSets, translationTable)
 
     println(">>> Creating First")
-    val first = createFirst(extendedGrammar, tokens)
+    val first = createFirst(extendedGrammar, updatedTokens)
 
     println(">>> Creating Follow")
-    val follow = createFollow(extendedGrammar, tokens, first)
+    val follow = createFollow(extendedGrammar, updatedTokens, first)
 
     println(">>> Creating Actions and Gotos tables")
-    val gotos = createGotos(extendedGrammar, tokens, itemSets, translationTable, follow)
+    val gotos = createGotos(extendedGrammar, updatedTokens, itemSets, translationTable, follow)
 
 
     val returnType = starterRules.find { it.rule.name == start }!!.returnType
@@ -515,7 +516,7 @@ public class %1${'$'}sParser {
                 is Reduce -> {
                     %1${'$'}sParser::class.java.getDeclaredMethod(extendedGrammar[currentTransition.index].extendedName).invoke(this)
                     extendedGrammar[currentTransition.index].production.indices.forEach { st.pop() }
-                    st.push(gotos[st.peek()][extendedGrammar[currentTransition.index].name]?.index ?: noTransition()
+                    st.push(gotos[st.peek()][extendedGrammar[currentTransition.index].name]?.index ?: noTransition())
                 }
 
                 else -> noTransition()
@@ -538,7 +539,7 @@ public class %1${'$'}sParser {
         if (output.empty()) {
             throw SyntaxException("Expected more tokens", lex.curPos)
         }
-        if (output.peek() !is T) throw SyntaxException("Got wrong type for \"${'$'}{ output.peek() }\", lex.curPos")
+        if (output.peek() !is T) throw SyntaxException("Got wrong type for \"${'$'}{ output.peek() }\"", lex.curPos)
         return output.pop() as T
     }
 

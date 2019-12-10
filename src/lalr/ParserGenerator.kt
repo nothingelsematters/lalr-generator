@@ -2,7 +2,7 @@ package lalr
 
 import java.io.File
 
-fun processFile(fileName: String, outputFile: String) = TODO()
+fun processFile(fileName: String, outputFile: String): Nothing = TODO()
 
 fun writeGenerator(
     filePrefix: String,
@@ -16,6 +16,7 @@ fun writeGenerator(
         it.print(generateLexer(name, tokens))
     }
     File(filePrefix + "Parser.kt").printWriter().use {
-        it.print(generateSyntaxAnalyzer(name, ruleList, tokens.asSequence().filterNot(Token::skip).map(Token::name).toSet(), start))
+        it.print(generateSyntaxAnalyzer(name, ruleList,
+            tokens.asSequence().filterNot(Token::skip).map(Token::name).toSet(), start, parserHeader))
     }
 }

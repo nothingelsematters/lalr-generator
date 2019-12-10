@@ -2,7 +2,7 @@ package lalr
 
 open class ParserGenerationException(val msg: String): Exception(msg)
 
-data class Token(val name: String, val value: String, val skip = false)
+data class Token(val name: String, val value: Regex, val skip: Boolean = false)
 
 const val START = "!Start"
 const val EPSILON = "!EPSILON"
