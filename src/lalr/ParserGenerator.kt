@@ -1,8 +1,9 @@
 package lalr
 
 import java.io.File
+import java.nio.file.Files.createDirectories
+import java.nio.file.Paths
 
-fun processFile(fileName: String, outputFile: String): Nothing = TODO()
 
 fun writeGenerator(
     filePrefix: String,
@@ -10,13 +11,18 @@ fun writeGenerator(
     tokens: List<Token>,
     ruleList: List<StarterRule>,
     start: String,
-    parserHeader: String
+    header: String
 ) {
-    File(filePrefix + "Lexer.kt").printWriter().use {
-        it.print(generateLexer(name, tokens))
-    }
-    File(filePrefix + "Parser.kt").printWriter().use {
-        it.print(generateSyntaxAnalyzer(name, ruleList,
-            tokens.asSequence().filterNot(Token::skip).map(Token::name).toSet(), start, parserHeader))
+    writeFile(filePrefix + "Lexer.kt", generateLexer(name, tokens, header))
+    writeFile(filePrefix + "Parser.kt", generateSyntaxAnalyzer(name, ruleList,
+        tokens.asSequence().filterNot(Token::skip).map(Token::name).toSet(), start, header))
+}
+
+fun writeFile(name: String, content: String) {
+    println("> Writing $name")
+    createDirectories(Paths.get(".", name).getParent())
+
+    File(name).printWriter().use {
+        it.print(content)
     }
 }
