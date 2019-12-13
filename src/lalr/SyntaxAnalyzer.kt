@@ -29,11 +29,21 @@ data class ExtendedRule(val name: String, val production: List<String>, val indi
         indices.subList(1, indices.size - 1).zip(production) { i, p -> "$p $i" }.joinToString(separator = " ")
 }
 
-abstract class Action(open val index: Int)
+abstract class Action(open val index: Int) {
+    abstract fun tableString(): String
+}
 
-data class Shift(override val index: Int): Action(index)
-data class Reduce(override val index: Int): Action(index)
-data class Goto(override val index: Int): Action(index)
+data class Shift(override val index: Int): Action(index) {
+    override fun tableString(): String = "s$index"
+}
+
+data class Reduce(override val index: Int): Action(index) {
+    override fun tableString(): String = "r$index"
+}
+
+data class Goto(override val index: Int): Action(index) {
+    override fun tableString(): String = "$index"
+}
 
 
 fun assertValidRules(rules: List<Rule>, tokens: Set<String>, start: String) {
@@ -61,12 +71,60 @@ fun assertValidCodes(rules: List<StarterRule>) {
     }
 }
 
+fun addFirst(
+    ruleList: List<Rule>,
+    indicesMap: Map<String, List<Int>>,
+    num: Int,
+    first: MutableMap<String, MutableSet<String>>,
+    terminals: Set<String>
+) {
+    val rule = ruleList[num]
+    val name = rule.name
+
+    for (i in rule.production.indices) {
+        val part = rule.production[i]
+        if (terminals.contains(part)) {
+            first[name]!!.add(part)
+            return
+        }
+
+        val partIndex = indicesMap[part]!!
+        var partSet = partIndex.asSequence().flatMap { first[ruleList[it].name]!!.asSequence() }.toSet()
+        if (partSet.isEmpty()) {
+            partIndex.forEach { if (it != num) addFirst(ruleList, indicesMap, it, first, terminals) }
+            partSet = partIndex.asSequence().flatMap { first[ruleList[it].name]!!.asSequence() }.toSet()
+        }
+
+        first[name]!!.addAll(partSet)
+        if (!partSet.contains(EPSILON)) break
+    }
+}
+
+fun createFirst(ruleList: List<Rule>, terminals: Set<String>): Map<String, Set<String>> {
+    val first = HashMap<String, MutableSet<String>>()
+    ruleList.forEach { first[it.name] = HashSet<String>() }
+    val indicesMap = ruleList.indices.groupBy { ruleList[it].name }
+
+    val (terminalLeading, nonTerminalLeading) = ruleList.withIndex()
+        .partition { (_, r) -> terminals.contains(r.production.first()) }
+
+    terminalLeading.forEach { (_, rule) -> first[rule.name]!!.add(rule.production.first()) }
+    nonTerminalLeading.forEach { (i, _) -> addFirst(ruleList, indicesMap, i, first, terminals) }
+
+    // verbose
+    val maxSpace = 1 + (indicesMap.keys.asSequence().map { it.length }.max() ?: 0)
+    first.entries.forEach { (s, il) ->
+        logln("FIRST($s)${" ".repeat(maxSpace - s.length)}│ {${il.joinToString()}}")
+    }
+    return first
+}
+
 fun addRule(rules: Map<String, List<Rule>>, tokens: Set<String>, rule: Rule, itemSet: MutableSet<Rule>) {
     if (itemSet.contains(rule)) return
 
     itemSet.add(rule)
-    if (rule.pointer == rule.production.size || !rules.containsKey(rule.pointed)) return
-    rules[rule.production[rule.pointer]]!!.forEach { addRule(rules, tokens, it.copy(pointer = 0), itemSet) }
+    if (rule.pointer >= rule.production.size) return
+    rules[rule.pointed]?.forEach { addRule(rules, tokens, it.copy(pointer = 0), itemSet) }
 }
 
 fun createItemSets (
@@ -84,7 +142,6 @@ fun createItemSets (
 
     while (!q.isEmpty()) {
         val (currentStart, from) = q.poll()
-
         val itemSet = HashSet<Rule>()
         currentStart.forEach { addRule(rules, tokens, it, itemSet) }
 
@@ -94,8 +151,8 @@ fun createItemSets (
             translationTable.add(HashMap<String, Int>())
 
             itemSet
-                .filter { it.production.size > it.pointer }
-                .groupBy { it.production[it.pointer] }
+                .filter { it.production.size > it.pointer && it.pointed != EPSILON }
+                .groupBy { it.pointed }
                 .forEach { (_, newSetStart) ->
                     q.add(newSetStart.map { it.copy(pointer = it.pointer + 1) } to itemSetList.lastIndex)
                 }
@@ -109,11 +166,11 @@ fun createItemSets (
 
     // verbose
     itemSetList.forEachIndexed { index, it ->
-        logln(index)
+        logln("$index ${"─".repeat(99 - index.toString().length)}")
         it.forEach { that -> logln("    $that") }
     }
-    logln("-".repeat(30))
-    logMaps(translationTable)
+    logln("─".repeat(100))
+    logMaps(translationTable) { it.toString() }
 
     return itemSetList to translationTable
 }
@@ -128,6 +185,11 @@ fun extendGrammar(itemSets: List<Set<Rule>>, translationTable: List<Map<String, 
                 var currentIndex = index
                 indices.add(currentIndex)
 
+                if (it.production == listOf(EPSILON)) {
+                    indices.add(currentIndex)
+                    return@mapping ExtendedRule(it.name, it.production, indices)
+                }
+
                 for (i in it.production.indices) {
                     currentIndex = translationTable[currentIndex][it.production[i]]!!
                     indices.add(currentIndex)
@@ -139,47 +201,6 @@ fun extendGrammar(itemSets: List<Set<Rule>>, translationTable: List<Map<String, 
         }
         .flatten()
         .also { it.forEachIndexed { index, er -> logln("$index. $er")} } // verbose
-
-fun addFirst(ruleList: List<ExtendedRule>, indicesMap: Map<String, List<Int>>, num: Int, first: List<MutableSet<String>>) { // TODO fix loops
-    if (first[num].isNotEmpty()) return
-
-    val rule = ruleList[num]
-
-    for (i in rule.production.indices) {
-        val part = rule.production[i]
-        val partList = indicesMap[part]!!
-        val partIndex = partList.indexOfFirst {
-            ruleList[it].name == part && ruleList[it].indices.first() == rule.indices[i]
-        }
-        val partSet = first[partList[partIndex]]
-
-        if (partSet.isEmpty()) {
-            addFirst(ruleList, indicesMap, partIndex, first)
-        }
-
-        first[num].addAll(partSet)
-        if (!partSet.contains(EPSILON)) break
-    }
-}
-
-fun createFirst(ruleList: List<ExtendedRule>, terminals: Set<String>): List<Set<String>> {
-    val first = MutableList<MutableSet<String>>(ruleList.size) { HashSet<String>() }
-    val indicesMap = ruleList.indices.groupBy { ruleList[it].name }
-
-    val (terminalLeading, nonTerminalLeading) = ruleList.zip(ruleList.indices)
-        .partition { (r, _) -> terminals.contains(r.production.first()) }
-    terminalLeading.forEach { (rule, _) -> indicesMap[rule.name]!!.forEach { first[it].add(rule.production.first()) } }
-    nonTerminalLeading.forEach { (_, i) -> addFirst(ruleList, indicesMap, i, first) }
-
-    // verbose
-    indicesMap.entries.forEach { (s, il) ->
-        il.forEach { i ->
-            val inds = ruleList[i].indices
-            logln("FIRST(${inds.first()} $s ${inds.last()}) = {${first[i].joinToString()}}")
-        }
-    }
-    return first
-}
 
 fun findExtendedRule(ruleList: List<ExtendedRule>, rule: ExtendedRule, left: Int): List<Int> =
     ruleList.mapIndexedNotNull { index, el ->
@@ -224,12 +245,12 @@ fun findCycle(graph: Map<Int, List<Int>>): List<Int>? {
 fun createFollow(
     ruleList: List<ExtendedRule>,
     terminals: Set<String>,
-    first: List<Set<String>>
-): List<Set<String>> { /* DEBUG */
+    first: Map<String, Set<String>>
+): List<Set<String>> {
 
     val followMap = HashMap<Pair<String, Int>, MutableSet<String>>()
     followMap.getOrPut(START to 0) { HashSet<String>() }.add(EOF)
-    val delayedSubstitution = HashMap<Int, MutableList<Int>>()
+    var delayedSubstitution = HashMap<Int, MutableList<Int>>()
 
     ruleList.forEachIndexed { ruleIndex, rule ->
         rule.production.subList(0, rule.production.lastIndex).forEachIndexed traversing@ { index, prod ->
@@ -242,20 +263,22 @@ fun createFollow(
                     setOf(rule.production[subIndex])
                 } else {
                     var currentIndices = findExtendedRule(ruleList, rule, subIndex)
-                    /* val firstIndices = currentIndices */
 
                     val result = HashSet<String>()
-                    while (currentIndices.any { first[it].contains(EPSILON) } && subIndex < rule.production.size) {
-                        result.addAll(currentIndices.map { first[it] }.flatten())
+                    while (currentIndices.any { first[ruleList[it].name]!!.contains(EPSILON) }
+                            && subIndex < rule.production.size) {
+                        currentIndices = findExtendedRule(ruleList, rule, subIndex)
+                        result.addAll(currentIndices.flatMap { first[ruleList[it].name]!! })
                         result.remove(EPSILON)
                         subIndex++
-                        currentIndices = findExtendedRule(ruleList, rule, subIndex)
                     }
 
-                    if (subIndex < rule.production.size) {
-                        delayedSubstitution.getOrPut(ruleIndex) { ArrayList<Int>() }.addAll(currentIndices)
+                    if (subIndex == rule.production.size) { // TODO CPYPST
+                        delayedSubstitution
+                            .getOrPut(ruleIndex) { ArrayList<Int>() }
+                            .addAll(findExtendedRule(ruleList, rule, index))
                     } else {
-                        result.addAll(currentIndices.map { first[it] }.flatten())
+                        result.addAll(currentIndices.map { first[ruleList[it].name]!! }.flatten())
                     }
                     result
                 }
@@ -263,7 +286,9 @@ fun createFollow(
         }
 
         if (!terminals.contains(rule.production.last())) {
-            delayedSubstitution.getOrPut(ruleIndex) { ArrayList<Int>() }.addAll(findExtendedRule(ruleList, rule, rule.production.lastIndex))
+            delayedSubstitution
+                .getOrPut(ruleIndex) { ArrayList<Int>() }
+                .addAll(findExtendedRule(ruleList, rule, rule.production.lastIndex))
         }
     }
 
@@ -309,7 +334,7 @@ fun createFollow(
 
         doneList.forEach { delayedSubstitution.remove(it) }
 
-        if (was == delayedSubstitution.size) { /* DEBUG */
+        if (was == delayedSubstitution.size) {
             break
         }
     }
@@ -326,7 +351,12 @@ fun createFollow(
     }
 
     // verbose
-    followMap.forEach { (s, ss) -> logln("FOLLOW(${s.second} ${s.first}) = { ${ss.joinToString()} }")}
+    val maxSpace = 1 +
+        (followMap.keys.asSequence().map { it.first.length + it.second.toString().length }.max() ?: 0)
+    followMap.forEach { (s, ss) ->
+        val spacesLeft = maxSpace - s.first.length - s.second.toString().length
+        logln("FOLLOW(${s.second} ${s.first})${" ".repeat(spacesLeft)}│ { ${ss.joinToString()} }")
+    }
 
     return follow
 }
@@ -340,7 +370,6 @@ fun createGotos(
 ): List<Map<String, Action>> {
 
     val transitions = MutableList<MutableMap<String, Action>>(itemSets.size) { HashMap<String, Action>() }
-
     val finishIndex = itemSets.indexOfFirst { it.find { it.name == START && it.pointer == it.production.size } != null }
 
     transitions.forEachIndexed { index, it ->
@@ -352,6 +381,7 @@ fun createGotos(
 
     ruleList
         .indices
+        .asSequence()
         .groupBy {
             val indices = ruleList[it].indices
             indices[indices.size - 2]
@@ -364,11 +394,20 @@ fun createGotos(
                 .map { follow[it] }
                 .flatten()
                 .toSet()
-                .forEach { transitions[newIndex][it] = Reduce(ruleIndex) }
+                .forEach {
+                    val errorMessage = "%s/reduce conflict found, apparently not LALR grammar"
+                    when (transitions[newIndex][it]) {
+                        is Reduce -> throw SyntaxAnalyzerGenerationException(errorMessage.format("reduce"))
+                        is Shift  -> throw SyntaxAnalyzerGenerationException(errorMessage.format("shift"))
+                    }
+
+                    transitions[newIndex][it] = Reduce(ruleIndex)
+                }
         }
+
     transitions[finishIndex][EOF] = Goto(-1)
 
-    logMaps(transitions) // verbose
+    logMaps(transitions) { it.tableString() } // verbose
     return transitions
 }
 
@@ -389,36 +428,45 @@ fun createOutput(extendedGrammar: List<ExtendedRule>, gotos: List<Map<String, Ac
     }.joinToString(",\n|${indent(2)}", "listOf<Map<String, Action>>(\n|${indent(2)}", "\n|${indent()})")
 
 
+
     return """
     |${indent()}val extendedGrammar = $grammarString
     |${indent()}val gotos = $gotosString
     """.trimMargin("|")
 }
 
-fun createRulesArguments(rule: Rule, types: Map<String, String>) =
-    rule
+fun createRulesArguments(rule: Rule, types: Map<String, String>, used: Set<Int>): String {
+    if (rule.production == listOf(EPSILON)) return ""
+    return rule
         .production
         .asReversed()
         .asSequence()
-        .mapIndexed { index, name -> "val arg${rule.production.lastIndex - index} = safePop<${types[name] ?: "Token"}>()" }
+        .mapIndexed { index, name ->
+            val inputIndex = rule.production.lastIndex - index
+            val postFix = "safePop<${types[name] ?: "Token"}>()"
+            if (used.contains(inputIndex)) "val arg${rule.production.lastIndex - index} = " + postFix else postFix
+        }
         .joinToString("\n|${indent(2)}")
+}
 
 fun createRulesCode(rules: List<StarterRule>): String {
     val types = rules.asSequence().map { it.rule.name to it.returnType }.toMap()
+    val argRegex = Regex("\\${'$'}\\d+")
 
     return rules
         .asSequence()
         .map {
-            val newCode = it.code.replace(Regex("\\${'$'}\\d+")) { "arg${it.value.substringAfterLast('$')}" }
+            val newCode = it.code.replace(argRegex) { "arg${it.value.substringAfterLast('$')}" }
             val lines = newCode.lines()
             val first = lines.subList(0, lines.size - 1).joinToString("\n${indent(2)}")
             val second = lines.last()
+            val concatenated = (if (!first.isEmpty()) "|${indent(2)}$first\n" else "") + "|${indent(2)}output.push($second)"
+            val usedArgs = argRegex.findAll(it.code).map { it.value.substring(1, it.value.length).toInt() }.toSet()
 
             """
             |${indent()}private fun `${it.rule.extendedName}`() {
-            |${indent(2)}${createRulesArguments(it.rule, types)}
-            |${indent(2)}$first
-            |${indent(2)}output.push($second)
+            |${indent(2)}${createRulesArguments(it.rule, types, usedArgs)}
+            $concatenated
             |${indent()}}
             """.trimMargin("|")
         }
@@ -436,6 +484,8 @@ fun generateSyntaxAnalyzer(
     val ruleList = starterRules.map { it.rule }
     println(">> Generating Syntax Analyzer")
     ruleList.forEachIndexed { index, it -> logln("$index. $it") } // verbose
+    logln("tokens: ${tokens.joinToString()}")
+    
     val updatedTokens = tokens + EPSILON + EOF
 
     assertValidRules(ruleList, updatedTokens, start)
@@ -443,14 +493,14 @@ fun generateSyntaxAnalyzer(
     val rules = ruleList.groupBy(Rule::name)
     val startRule = Rule(START, listOf(start))
 
+    println(">>> Creating First")
+    val first = createFirst(ruleList, updatedTokens)
+
     println(">>> Creating Item Sets and Translation Table")
     val (itemSets, translationTable) = createItemSets(rules, updatedTokens, startRule)
 
     println(">>> Extending Grammar")
     val extendedGrammar = extendGrammar(itemSets, translationTable)
-
-    println(">>> Creating First")
-    val first = createFirst(extendedGrammar, updatedTokens)
 
     println(">>> Creating Follow")
     val follow = createFollow(extendedGrammar, updatedTokens, first)
@@ -515,7 +565,12 @@ public class %1${'$'}sParser {
 
                 is Reduce -> {
                     %1${'$'}sParser::class.java.getDeclaredMethod(extendedGrammar[currentTransition.index].extendedName).invoke(this)
-                    extendedGrammar[currentTransition.index].production.indices.forEach { st.pop() }
+
+                    val prod = extendedGrammar[currentTransition.index].production
+                    if (prod != listOf(EPSILON)) {
+                        prod.indices.forEach { st.pop() }
+                    }
+
                     st.push(gotos[st.peek()][extendedGrammar[currentTransition.index].name]?.index ?: noTransition())
                 }
 
@@ -532,7 +587,7 @@ public class %1${'$'}sParser {
     }
 
     private fun noTransition(): Nothing {
-        throw SyntaxException("No rule for \"${'$'}{ lex.curToken.name }\" at", lex.curPos)
+        throw SyntaxException("No rule for \"${'$'}{ lex.curToken.name }\" at ${'$'}{ lex.curLine }:${'$'}{ lex.curIndex }", lex.curPos)
     }
 
     inline private fun <reified T> safePop(): T {

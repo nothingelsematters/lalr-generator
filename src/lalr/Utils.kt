@@ -26,29 +26,30 @@ fun logln(vararg info: Any) {
     log(info.asList() + "\n")
 }
 
-fun <T> logMaps(col: List<Map<String, T>>) {
+fun <T> logMaps(col: List<Map<String, T>>, makeString: (T) -> String) {
     val indexTab = 4
     val elements = col.asSequence().flatMap { it.keys.asSequence() }.toSet().toList()
     val spaces = elements.map {
-        maxOf(3, it.length + 1, col.mapNotNull { m -> m[it]?.toString()?.length }.max()?.plus(1) ?: 3)
+        maxOf(4, it.length + 1, col.mapNotNull { m -> m[it]?.let { makeString(it).length }}.max() ?: 4)
     }
 
     log(" ".repeat(indexTab))
-    elements.forEachIndexed { index, it -> log("${" ".repeat(spaces[index] - it.length)}$it") }
+    elements.forEachIndexed { index, it -> log("│${" ".repeat(spaces[index] - it.length - 1)}$it") }
     logln()
 
     col.forEachIndexed { i, m ->
         val str = i.toString()
-        log("${" ".repeat(indexTab - str.length)}$str")
+        log("│${" ".repeat(indexTab - str.length - 1)}$str")
 
         elements.forEachIndexed { j, it ->
             val maxSpace = spaces[j]
             log(
                 m[it]
                     ?.let {
-                        "${" ".repeat(maxSpace - it.toString().length)}$it"
+                        val string = makeString(it)
+                        "│${" ".repeat(maxSpace - string.length - 1)}$string"
                     }
-                    ?: " ".repeat(maxSpace)
+                    ?: "│" + " ".repeat(maxSpace - 1)
             )
         }
         logln()

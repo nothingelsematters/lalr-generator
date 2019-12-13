@@ -20,19 +20,25 @@ data class State(
             .toString()
 }
 
-fun generateLexer(name: String, tokens: List<Token>): String {
+fun Regex.toHardcodeString(): String = pattern.replace("\\", "\\\\").replace("\"", "\\\"")
+
+fun generateLexer(name: String, tokens: List<Token>, header: String): String {
     println(">> Generating Lexical Analyzer")
     val tokenStrings = tokens
         .asSequence()
         .map {
-            "InputToken(\"${ it.name }\", Regex(\"${ it.value.pattern.replace("\\", "\\\\") }\"), skip = ${ it.skip })"
+            val reg = it.value.toHardcodeString()
+            "InputToken(\"${ it.name }\", Regex(\"$reg\", RegexOption.DOT_MATCHES_ALL), skip = ${ it.skip })"
         }
         .joinToString(separator = ",\n${ indent(2) }")
-    return analyzerTemplate.format(name, tokenStrings)
+    val globalRegex = tokens.asSequence().map { "(${it.value.toHardcodeString()})" }.joinToString("|")
+
+    return analyzerTemplate.format(header, name, tokenStrings, globalRegex)
 }
 
 val analyzerTemplate =
     """
+    %s
     import java.io.InputStream
     import java.io.IOException
     import java.text.ParseException
@@ -50,7 +56,15 @@ val analyzerTemplate =
             %s
         )
 
+        private val globalRegex = Regex("%s", RegexOption.DOT_MATCHES_ALL)
+
         var curPos = 0
+            private set
+
+        var curLine = 1
+            private set
+
+        var curIndex = 0
             private set
 
         lateinit var curToken: Token
@@ -62,10 +76,17 @@ val analyzerTemplate =
 
         private fun nextChar() {
             curPos++
+            curIndex++
+
             try {
                 curChar = ins.read()
             } catch (e: IOException) {
                 throw ParseException(e.message, curPos)
+            }
+
+            if (curChar != -1 && curChar.toChar() == '\n') {
+                curLine++
+                curIndex = 1
             }
         }
 
@@ -76,23 +97,27 @@ val analyzerTemplate =
                 curToken = Token("!EOF", "${'$'}")
                 return
             }
+            val previousLine = curLine
+            val previousIndex = curIndex
 
             while (true) {
-                states.forEach {
-                    if (text.toString().matches(it.value)) {
-                        while (curChar != -1 && text.toString().matches(it.value)) {
-                            nextChar()
-                            text.append(curChar.toChar())
-                        }
-                        curToken = Token(it.name, text.toString().let { it.substring(0, it.lastIndex) })
-                        return
+                if (text.matches(globalRegex)) {
+                    val matching = states.find { text.matches(it.value) }!!
+                    while (curChar != -1 && text.matches(matching.value)) {
+                        nextChar()
+                        text.append(curChar.toChar())
                     }
+
+                    curToken = Token(matching.name, text.toString().let { it.substring(0, it.lastIndex) })
+                    if (matching.skip) nextToken()
+                    return
                 }
 
                 nextChar()
                 if (curChar == -1) {
-                    throw LexicalException("Unexpected char sequence", curPos)
+                    throw LexicalException("Unexpected char sequence at ${'$'}previousLine:${'$'}previousIndex", curPos)
                 }
+                text.append(curChar.toChar())
             }
         }
     }
