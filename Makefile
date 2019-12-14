@@ -1,16 +1,16 @@
-.PHONY: all run
+.PHONY: all run clean
 
 PACKAGE = lalr
 FOLDER = src/$(PACKAGE)
 SOURCES = $(FOLDER)/InputGrammar.kt $(FOLDER)/LexicalAnalyzer.kt  $(FOLDER)/SyntaxAnalyzer.kt  $(FOLDER)/Utils.kt $(FOLDER)/ParserGenerator.kt
 GENERATED = $(patsubst src/%.kt,$(OUT)/%Kt.class,$(SOURCES))
 
-INPUT = $(FOLDER)/Main.kt
-PREPARATION = $(patsubst src/%.kt,$(OUT)/%Kt.class,$(INPUT))
+INPUT = $(FOLDER)/Main.kt $(FOLDER)/input/InputLexer.kt $(FOLDER)/input/InputParser.kt $(FOLDER)/Utils.kt $(FOLDER)/ParserGenerator.kt
+PREPARATION = $(OUT)/$(PACKAGE)/MainKt.class
 OUT = out
 
 
-all: $(PREPARATION)
+all: $(GENERATED) $(PREPARATION)
 
 
 $(PREPARATION): $(GENERATED)
@@ -22,3 +22,6 @@ $(GENERATED): $(SOURCES)
 
 run:
 	kotlin -cp $(OUT) MainKt
+
+clean:
+	rm -rf out $(FOLDER)/input
