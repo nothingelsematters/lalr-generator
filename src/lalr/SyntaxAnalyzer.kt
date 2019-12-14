@@ -76,29 +76,32 @@ fun addFirst(
     indicesMap: Map<String, List<Int>>,
     num: Int,
     first: MutableMap<String, MutableSet<String>>,
-    terminals: Set<String>
+    terminals: Set<String>,
+    visited: MutableSet<Int> = HashSet<Int>()
 ) {
     val rule = ruleList[num]
     val name = rule.name
+    visited.add(num)
 
     for (i in rule.production.indices) {
         val part = rule.production[i]
         if (terminals.contains(part)) {
             first[name]!!.add(part)
-            return
+            break
         }
 
         val partIndex = indicesMap[part]!!
         var partSet = partIndex.asSequence().flatMap { first[ruleList[it].name]!!.asSequence() }.toSet()
 
         if (partSet.isEmpty()) {
-            partIndex.forEach { if (it != num) addFirst(ruleList, indicesMap, it, first, terminals) }
+            partIndex.forEach { if (!visited.contains(it)) addFirst(ruleList, indicesMap, it, first, terminals, visited) }
             partSet = partIndex.asSequence().flatMap { first[ruleList[it].name]!!.asSequence() }.toSet()
         }
 
         first[name]!!.addAll(partSet)
         if (!partSet.contains(EPSILON)) break
     }
+    visited.remove(num)
 }
 
 fun createFirst(ruleList: List<Rule>, terminals: Set<String>): Map<String, Set<String>> {
