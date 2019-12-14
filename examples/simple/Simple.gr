@@ -1,0 +1,20 @@
+@grammar Simple;
+
+S @returns [String] : N { "S($$0)" };
+
+N @returns [String] : V equals E { val text = $1.text
+                                   "N($$0, $text, $$2)" }
+                    | E { "N($$0)" }
+                    ;
+
+V @returns [String] : x { val text = $0.text
+                          "V($text)"         }
+                    | asterisk E { val text = $0.text
+                                   "V($text, $$1)" }
+                    ;
+
+E @returns [String] : V { "E($$0)" };
+
+x : "x";
+asterisk : "\*";
+equals : "=";
