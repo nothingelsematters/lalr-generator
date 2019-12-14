@@ -60,15 +60,15 @@ val analyzerTemplate =
 
         var curPos = 0
             private set
-
+            
         var curLine = 1
             private set
-
+            
         var curIndex = 0
             private set
+            
 
-        lateinit var curToken: Token
-            private set
+        lateinit var curToken: Token private set
 
         init {
             nextChar()

@@ -63,14 +63,14 @@ fun main() {
             "${'$'}1.text.let { it.substring(1, it.lastIndex) }", "String"),
         /* rules = rule rules
            rules = E          */
-        StarterRule(Rule("rules", listOf("rule", "rules")), "${'$'}1 + ${'$'}0", "List<Any>"),
+        StarterRule(Rule("rules", listOf("rule", "rules")), "(${'$'}1 + ${'$'}0).asReversed()", "List<Any>"),
         StarterRule(Rule("rules", listOf(EPSILON)), "emptyList<Any>()", "List<Any>"),
         /* rule = rule_header : subrule_list ;
            rule = NAME : REGEX ;            */
         StarterRule(Rule("rule", listOf("rule_header", "COLON", "subrule_list", "SEMICOLON")),
             "${'$'}2.map { StarterRule(Rule(${'$'}0.first, it.first), it.second, ${'$'}0.second) }", "List<Any>"),
         StarterRule(Rule("rule", listOf("NAME", "COLON", "REGEX", "SEMICOLON")),
-            "listOf(lalr.Token(${'$'}0.text, Regex(\"${'$'}{${'$'}2.text.let { it.substring(0, it.lastIndex) }}\")))",
+            "listOf(lalr.Token(${'$'}0.text, Regex(\"${'$'}{${'$'}2.text.let { it.substring(1, it.lastIndex) }}\")))",
             "List<Any>"),
         /* rule_header = NAME RETURNS [ NAME ] */
         StarterRule(Rule("rule_header", listOf("NAME", "RETURNS", "OPEN_BRACKET", "type", "CLOSE_BRACKET")),

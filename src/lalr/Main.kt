@@ -61,9 +61,9 @@ fun main(args: Array<String>) {
         outputFile = grammarFile.substringBeforeLast('.')
     }
 
-    /* try { */
-    processFile(grammarFile, outputFile)
-    /* } catch (e: Exception) {
+    try {
+        processFile(grammarFile, outputFile)
+    } catch (e: Exception) {
         println("ERROR: ${e.message}")
-    } */
+    }
 }
