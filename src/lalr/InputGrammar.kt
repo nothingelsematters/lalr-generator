@@ -19,6 +19,7 @@ fun main() {
         Token("HEADER", Regex("@header")),
         Token("RETURNS", Regex("@returns")),
         Token("GRAMMAR", Regex("@grammar")),
+        Token("SKIP", Regex("-> skip")),
         // huge strings
         Token("REGEX", Regex("\".*\"")),
         Token("NAME", Regex("[a-zA-Z][a-zA-Z_]*")),
@@ -35,6 +36,7 @@ fun main() {
         rules -> EPSILON
         rule -> rule_header COLON subrule_list SEMICOLON
         rule -> NAME COLON REGEX SEMICOLON
+        rule -> NAME COLON REGEX SKIP SEMICOLON
         rule_header -> NAME RETURNS OPEN type CLOSE
         type -> NAME
         type -> NAME OPEN_TRIANGULAR coma_type CLOSE_TRIANGULAR
@@ -49,6 +51,8 @@ fun main() {
     val inputCode = """
         val (tokens, rules) = %s.partition { it is lalr.Token }
         Input(${'$'}0, %s, rules.map { it as StarterRule }, tokens.map { it as lalr.Token })""".trimIndent()
+    val tokenCode =
+        "listOf(lalr.Token(${'$'}0.text, Regex(\"${'$'}{${'$'}2.text.let { it.substring(1, it.lastIndex) }}\"), %s))"
 
 
     val ruleList = listOf(
@@ -66,12 +70,12 @@ fun main() {
         StarterRule(Rule("rules", listOf("rule", "rules")), "(${'$'}1 + ${'$'}0).asReversed()", "List<Any>"),
         StarterRule(Rule("rules", listOf(EPSILON)), "emptyList<Any>()", "List<Any>"),
         /* rule = rule_header : subrule_list ;
-           rule = NAME : REGEX ;            */
+           rule = NAME : REGEX ;
+           rule = NAME : REGEX -> skip;            */
         StarterRule(Rule("rule", listOf("rule_header", "COLON", "subrule_list", "SEMICOLON")),
             "${'$'}2.map { StarterRule(Rule(${'$'}0.first, it.first), it.second, ${'$'}0.second) }", "List<Any>"),
-        StarterRule(Rule("rule", listOf("NAME", "COLON", "REGEX", "SEMICOLON")),
-            "listOf(lalr.Token(${'$'}0.text, Regex(\"${'$'}{${'$'}2.text.let { it.substring(1, it.lastIndex) }}\")))",
-            "List<Any>"),
+        StarterRule(Rule("rule", listOf("NAME", "COLON", "REGEX", "SEMICOLON")), tokenCode.format(false), "List<Any>"),
+        StarterRule(Rule("rule", listOf("NAME", "COLON", "REGEX", "SKIP", "SEMICOLON")), tokenCode.format(true), "List<Any>"),
         /* rule_header = NAME RETURNS [ NAME ] */
         StarterRule(Rule("rule_header", listOf("NAME", "RETURNS", "OPEN_BRACKET", "type", "CLOSE_BRACKET")),
             "${'$'}0.text to ${'$'}3", "Pair<String, String>"),
@@ -92,7 +96,8 @@ fun main() {
             "listOf(${'$'}0)", "List<Pair<List<String>, String>>"),
         /* subrule = names CODE */
         StarterRule(Rule("subrule", listOf("names", "CODE")),
-            "${'$'}0 to ${'$'}1.text.let { it.substring(1, it.lastIndex) }", "Pair<List<String>, String>"),
+            "${'$'}0.ifEmpty { listOf(EPSILON) } to ${'$'}1.text.let { it.substring(1, it.lastIndex) }",
+            "Pair<List<String>, String>"),
         /* names = NAME names
            names = E          */
         StarterRule(Rule("names", listOf("NAME", "names")), "listOf(${'$'}0.text) + ${'$'}1", "List<String>"),
