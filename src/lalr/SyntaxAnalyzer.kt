@@ -91,12 +91,8 @@ fun addFirst(
         }
 
         val partIndex = indicesMap[part]!!
+        partIndex.forEach { if (!visited.contains(it)) addFirst(ruleList, indicesMap, it, first, terminals, visited) }
         var partSet = partIndex.asSequence().flatMap { first[ruleList[it].name]!!.asSequence() }.toSet()
-
-        if (partSet.isEmpty()) {
-            partIndex.forEach { if (!visited.contains(it)) addFirst(ruleList, indicesMap, it, first, terminals, visited) }
-            partSet = partIndex.asSequence().flatMap { first[ruleList[it].name]!!.asSequence() }.toSet()
-        }
 
         first[name]!!.addAll(partSet)
         if (!partSet.contains(EPSILON)) break
