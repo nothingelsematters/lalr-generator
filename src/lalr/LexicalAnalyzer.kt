@@ -60,13 +60,13 @@ val analyzerTemplate =
 
         var curPos = 0
             private set
-            
+
         var curLine = 1
             private set
-            
+
         var curIndex = 0
             private set
-            
+
 
         lateinit var curToken: Token private set
 
@@ -102,13 +102,14 @@ val analyzerTemplate =
 
             while (true) {
                 if (text.matches(globalRegex)) {
-                    val matching = states.find { text.matches(it.value) }!!
-                    while (curChar != -1 && text.matches(matching.value)) {
+                    while (curChar != -1 && text.matches(globalRegex)) {
                         nextChar()
                         text.append(curChar.toChar())
                     }
 
-                    curToken = Token(matching.name, text.toString().let { it.substring(0, it.lastIndex) })
+                    val str = text.toString().let { it.substring(0, it.lastIndex) }
+                    val matching = states.find { str.matches(it.value) }!!
+                    curToken = Token(matching.name, str)
                     if (matching.skip) nextToken()
                     return
                 }
