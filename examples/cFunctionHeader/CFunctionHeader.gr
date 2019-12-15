@@ -1,0 +1,111 @@
+@grammar CFunctionHeader;
+
+@header { package cFunctionHeader }
+
+Function @returns [SyntaxTree] : Specifiers returnType NameAndArgList SEMICOLON { SyntaxTree("function", $0, $1, $2, SyntaxTree($3.text)) } ;
+
+NameAndArgs @returns [SyntaxTree] : OPENP ASTERISK NAME CLOSEP ArgsList
+    { SyntaxTree("NameAndArgs", SyntaxTree($0.text), SyntaxTree($1.text), SyntaxTree($2.text), SyntaxTree($3.text), $4) } ;
+
+NameAndArgList @returns [SyntaxTree] : NAME ArgsList { SyntaxTree("NameAndArgList", SyntaxTree($0.text), $1) };
+
+Specifiers @returns [SyntaxTree] : Specifier Specifiers { SyntaxTree("Specifiers", $0, $1) }
+                                 | { SyntaxTree("e") }
+                                 ;
+
+Specifier @returns [SyntaxTree] : STATIC { SyntaxTree("Specifier", SyntaxTree($0.text)) }
+                                | INLINE { SyntaxTree("Specifier", SyntaxTree($0.text)) }
+                                ;
+
+ArgsList @returns [SyntaxTree] : OPENP Args CLOSEP { SyntaxTree("ArgsList", SyntaxTree("("), $1, SyntaxTree(")")) }
+                               | OPENP CLOSEP { SyntaxTree("ArgsList", SyntaxTree("e")) }
+                               ;
+
+Args @returns [SyntaxTree] : NotEmptyArgs { SyntaxTree("Args", $0) };
+
+returnType @returns [SyntaxTree] : VOID { SyntaxTree($0.text) }
+                                 | argType { SyntaxTree("returnType", $0) }
+                                 ;
+
+NotEmptyArgs @returns [SyntaxTree] : Arg RestArgs { SyntaxTree("NotEmptyArgs", $0, $1) };
+
+RestArgs @returns [SyntaxTree] : COMA NotEmptyArgs { SyntaxTree("RestArgs", SyntaxTree(","), $1) }
+                               | { SyntaxTree("e") }
+                               ;
+
+Arg @returns [SyntaxTree] : argType ArgRight { SyntaxTree("Args", $0, $1) }
+                          | VOID FunctionArgumentNameAndArgsList { SyntaxTree("Args", SyntaxTree($0.text), $1) }
+                          ;
+
+ArgRight @returns [SyntaxTree] : ArgName { SyntaxTree("ArgRight", $0) }
+                               | FunctionArgumentNameAndArgsList { SyntaxTree("ArgRight", $0) }
+                               ;
+
+FunctionArgumentNameAndArgsList @returns [SyntaxTree] : OPENP ASTERISK NAME CLOSEP ArgsList {
+    SyntaxTree("FunctionArgumentNameAndArgsList", SyntaxTree($0.text), SyntaxTree($1.text), SyntaxTree($2.text), SyntaxTree($3.text), $4) };
+
+ArgName @returns [SyntaxTree] : NAME { SyntaxTree("ArgName", SyntaxTree($0.text)) }
+                              | { SyntaxTree("e") }
+                              ;
+
+argType @returns [SyntaxTree] : TypeNameModifiers { SyntaxTree("argType", $0) }
+                              | CONST TypeNameModifiers { SyntaxTree("argType", SyntaxTree($0.text), $1) }
+                              ;
+
+TypeNameModifiers @returns [SyntaxTree] : TypeName Modifiers {SyntaxTree("TypeNameModifiers", $0, $1)} ;
+
+Modifiers @returns [SyntaxTree] : ASTERISK Modifiers { SyntaxTree("Modifiers", SyntaxTree($0.text), $1) }
+                                | CONST Modifiers { SyntaxTree("Modifiers", SyntaxTree($0.text), $1) }
+                                | { SyntaxTree("e") }
+                                ;
+
+TypeName @returns [SyntaxTree] : SystemTypes { SyntaxTree("TypeName", $0) }
+                               | STRUCT NAME { SyntaxTree("TypeName", SyntaxTree($0.text), SyntaxTree($1.text)) }
+                               ;
+
+SystemTypes @returns [SyntaxTree] : NumericSpecifiers SystemTypess { SyntaxTree("SystemTypes", $0, $1) };
+
+SystemTypess @returns [SyntaxTree] : CHAR { SyntaxTree("SystemTypes", SyntaxTree($0.text)) }
+                                   | BOOL { SyntaxTree("SystemTypes", SyntaxTree($0.text)) }
+                                   | INT { SyntaxTree("SystemTypes", SyntaxTree($0.text)) }
+                                   | FLOAT { SyntaxTree("SystemTypes", SyntaxTree($0.text)) }
+                                   | DOUBLE { SyntaxTree("SystemTypes", SyntaxTree($0.text)) }
+                                   | SHORT Int { SyntaxTree("SystemTypes", SyntaxTree($0.text), $1) }
+                                   | LONG Long { SyntaxTree("SystemTypes", SyntaxTree($0.text), $1) }
+                                   ;
+
+Long @returns [SyntaxTree] : Int { SyntaxTree("Long", $0) }
+                           | LONG Int { SyntaxTree("Long", SyntaxTree($0.text), $1) }
+                           ;
+
+Int @returns [SyntaxTree] : INT { SyntaxTree($0.text) }
+                          | { SyntaxTree("e") }
+                          ;
+
+NumericSpecifiers @returns [SyntaxTree] : UNSIGNED { SyntaxTree("NumericSpecifiers", SyntaxTree($0.text)) }
+                                        | SIGNED { SyntaxTree("NumericSpecifiers", SyntaxTree($0.text)) }
+                                        |  { SyntaxTree("e") }
+                                        ;
+
+
+SEMICOLON : ";";
+CLOSEP : "\)";
+OPENP : "\(";
+ASTERISK : "\*";
+COMA : ",";
+STATIC : "static";
+INLINE : "inline";
+CONST : "const";
+STRUCT : "struct";
+VOID : "void";
+CHAR : "char";
+INT : "int";
+FLOAT : "float";
+DOUBLE : "double";
+BOOL : "bool";
+LONG : "long";
+SHORT : "short";
+UNSIGNED : "unsigned";
+SIGNED : "signed";
+NAME : "([a-zA-Z][a-zA-Z0-9_]*)";
+WHITESPACES: "[\n\r\t ]+" -> skip;
