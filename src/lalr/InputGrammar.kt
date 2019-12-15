@@ -49,7 +49,7 @@ fun main() {
         names -> EPSILON
     */
     val inputCode = """
-        val (tokens, rules) = %s.partition { it is lalr.Token }
+        val (tokens, rules) = %s.asReversed().partition { it is lalr.Token }
         Input(${'$'}0, %s, rules.map { it as StarterRule }, tokens.map { it as lalr.Token })""".trimIndent()
     val tokenCode =
         "listOf(lalr.Token(${'$'}0.text, Regex(\"${'$'}{${'$'}2.text.let { it.substring(1, it.lastIndex) }}\"), %s))"
@@ -67,7 +67,7 @@ fun main() {
             "${'$'}1.text.let { it.substring(1, it.lastIndex) }", "String"),
         /* rules = rule rules
            rules = E          */
-        StarterRule(Rule("rules", listOf("rule", "rules")), "(${'$'}1 + ${'$'}0).asReversed()", "List<Any>"),
+        StarterRule(Rule("rules", listOf("rule", "rules")), "${'$'}1 + ${'$'}0", "List<Any>"),
         StarterRule(Rule("rules", listOf(EPSILON)), "emptyList<Any>()", "List<Any>"),
         /* rule = rule_header : subrule_list ;
            rule = NAME : REGEX ;
