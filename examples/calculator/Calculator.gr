@@ -1,25 +1,36 @@
 @grammar Calculator;
 
-expression @returns [Int] : expression PLUS added   { $0 + $2 }
-                          | expression MINUS added  { $0 - $2 }
-                          | added                   { $0 }
-                          ;
-
-added @returns [Int] : expression ASTERISK multiplied { $0 * $2 }
-                     | expression DIVIDE multiplied   { $0 / $2 }
-                     | multiplied                     { $0 }
-                     ;
-
-multiplied @returns [Int] : number { $0 }
-                          | OPENP expression CLOSEP { $1 }
-                          ;
-
-number @returns [Int] : NUMBER { $0.text.toInt() };
+@header {
+    import kotlin.math.pow
+}
 
 
-NUMBER : "\d+";
+
+expression @returns [Double] : expression PLUS added   { $0 + $2 }
+                             | expression MINUS added { $0 - $2 }
+                             | added                     { $0 }
+                             ;
+
+added @returns [Double] : added ASTERISK multiplied  { $0 * $2 }
+                        | added DIVIDE multiplied { $0 / $2 }
+                        | multiplied                  { $0 }
+                        ;
+
+multiplied @returns [Double] : powed POW multiplied { $0.pow($2) }
+                             | powed { $0 }
+                             ;
+
+powed @returns [Double] : number { $0 }
+                        | OPENP expression CLOSEP { $1 }
+                        ;
+
+number @returns [Double] : NUMBER { $0.text.toDouble() };
+
+
+NUMBER : "\d+(\.\d+)?";
 WHITESPACES : "[\n\r\t ]+" -> skip;
 ASTERISK : "\*";
+POW : "\^";
 PLUS : "\+";
 MINUS : "-";
 DIVIDE : "/";
